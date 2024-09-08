@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>youComments - Analizador de Comentarios</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto p-4">
+        <header class="bg-red-600 text-white p-4 rounded-lg shadow-lg mb-6">
+            <h1 class="text-3xl font-bold">youComments</h1>
+            <p class="text-sm">Herramientas para optimizar tu canal</p>
+        </header>
+
+        <main class="bg-white p-6 rounded-lg shadow-lg">
+            <h2 class="text-2xl font-semibold mb-4">Analizador de Comentarios</h2>
+            <p id="analysisLimit" class="mb-4 text-gray-600"></p>
+            <div class="mb-4">
+                <input type="text" id="urlInput" placeholder="Ingrese la URL del video de YouTube" class="w-full p-2 border rounded">
+            </div>
+            <button onclick="analyzeComments()" id="analyzeButton" class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700">Analizar Comentarios</button>
+            
+            <div id="loader" class="mt-4 text-center hidden">
+                <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+                <p>Analizando comentarios...</p>
+            </div>
+
+            <div id="results" class="mt-6"></div>
+        </main>
+    </div>
+
+    <script>
+        let analysisCount = 0;
+        const MAX_ANALYSES = 3;
+
+        window.onload = async function() {
+            await updateAnalysisCount();
+        }
+
+        async function updateAnalysisCount() {
+            try {
+                const response = await fetch('/analysis-count');
+                const data = await response.json();
+                analysisCount = data.count;
+                document.getElementById('analysisLimit').textContent = `Análisis restantes: ${MAX_ANALYSES - analysisCount} de ${MAX_ANALYSES}`;
+                document.getElementById('analyzeButton').disabled = analysisCount >= MAX_ANALYSES;
+                if (analysisCount >= MAX_ANALYSES) {
+                    document.getElementById('analyzeButton').classList.add('bg-gray-400', 'cursor-not-allowed');
+                    document.getElementById('analyzeButton').classList.remove('bg-red-600', 'hover:bg-red-700');
+                }
+            } catch (error) {
+                console.error('Error al obtener el conteo de análisis:', error);
+            }
+        }
+
+        function extractVideoId(url) {
+            const regExp = /^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/;
+            const match = url.match(regExp);
+            return (match && match[7].length == 11) ? match[7] : false;
+        }
+
+        async function analyzeComments() {
+            if (analysisCount >= MAX_ANALYSES) {
+                alert('Has alcanzado el límite de análisis permitidos.');
+                return;
+            }
+
+            const urlInput = document.getElementById('urlInput');
+            const results = document.getElementById('results');
+            const loader = document.getElementById('loader');
+            const videoId = extractVideoId(urlInput.value);
+
+            if (!videoId) {
+                results.innerHTML = '<p class="text-red-600">Error: URL de video inválida</p>';
+                return;
+            }
+
+            loader.classList.remove('hidden');
+            results.innerHTML = '';
+
+            try {
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ videoId }),
+                });
+
+                if (!response.ok) {
+                    throw new Error('Error en la respuesta del servidor');
+                }
+
+                const data = await response.json();
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                if (!data.analysis) {
+                    throw new Error('No se recibió un análisis válido del servidor');
+                }
+                displayResults(data.analysis);
+                await updateAnalysisCount();
+            } catch (error) {
+                results.innerHTML = `<p class="text-red-600">Error: ${error.message}</p>`;
+            } finally {
+                loader.classList.add('hidden');
+            }
+        }
+
+        function displayResults(analysis) {
+            const results = document.getElementById('results');
+            let html = '<h3 class="text-xl font-semibold mb-4">Resultados del Análisis</h3>';
+
+            // Temas principales
+            if (analysis.topTopics && Array.isArray(analysis.topTopics)) {
+                html += '<div class="mb-6"><h4 class="text-lg font-medium mb-2">Temas Principales</h4><ul>';
+                analysis.topTopics.forEach(topic => {
+                    html += `<li>${topic.name}: ${topic.mentions} menciones (${topic.percentage})</li>`;
+                });
+                html += '</ul></div>';
+            }
+
+            // Ideas para videos
+            if (analysis.videoIdeas && Array.isArray(analysis.videoIdeas)) {
+                html += '<div class="mb-6"><h4 class="text-lg font-medium mb-2">Ideas para Futuros Videos</h4><ul class="list-disc pl-5">';
+                analysis.videoIdeas.forEach(idea => {
+                    html += `<li class="mb-2">${idea}</li>`;
+                });
+                html += '</ul></div>';
+            }
+
+            // Sentimiento general
+            if (analysis.sentiment) {
+                html += `<div class="mb-6"><h4 class="text-lg font-medium mb-2">Sentimiento General</h4><p>${analysis.sentiment}</p></div>`;
+            }
+
+            // Preguntas frecuentes
+            if (analysis.frequentQuestions && Array.isArray(analysis.frequentQuestions)) {
+                html += '<div class="mb-6"><h4 class="text-lg font-medium mb-2">Preguntas Frecuentes</h4><ul class="list-disc pl-5">';
+                analysis.frequentQuestions.forEach(question => {
+                    html += `<li class="mb-2">${question}</li>`;
+                });
+                html += '</ul></div>';
+            }
+
+            // Sugerencias de los espectadores
+            if (analysis.viewerSuggestions && Array.isArray(analysis.viewerSuggestions)) {
+                html += '<div class="mb-6"><h4 class="text-lg font-medium mb-2">Sugerencias de los Espectadores</h4><ul class="list-disc pl-5">';
+                analysis.viewerSuggestions.forEach(suggestion => {
+                    html += `<li class="mb-2">${suggestion}</li>`;
+                });
+                html += '</ul></div>';
+            }
+
+            results.innerHTML = html;
+        }
+    </script>
+</body>
+</html>
